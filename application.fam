@@ -41,7 +41,7 @@ App(
     # Source files to compile (Python glob patterns)
     # Modify this based on your language's file extensions
     # For custom build systems, you may override this entirely
-    sources=[],
+    sources=["zig-out/bin/app.o"],
 
     # Dependencies on other Flipper apps/services
     # Common requirements: "gui", "storage", "notification"
@@ -59,6 +59,6 @@ App(
     # Use fap_extbuild to define custom build steps
     # Build the .o file first with: zig build
     fap_extbuild=[
-        ExtFile(path="zig-out/bin/app.o"),
+        ExtFile(path="zig-out/bin/app.o", command=""),
     ],
 )

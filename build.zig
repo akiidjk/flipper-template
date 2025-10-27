@@ -21,6 +21,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    obj.root_module.unwind_tables = .none;
+
     // Get SDK path from $HOME/.ufbt
     const home = std.posix.getenv("HOME") orelse ".";
     const sdk_base = b.fmt("{s}/.ufbt/current/sdk_headers/f7_sdk", .{home});
