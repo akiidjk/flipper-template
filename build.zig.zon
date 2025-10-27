@@ -1,0 +1,17 @@
+.{
+    .name = .flipper_template,
+
+    .version = "0.0.0",
+
+    .fingerprint = 0xb103efba546c6ad4,
+
+    .minimum_zig_version = "0.15.1",
+
+    .dependencies = .{},
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
