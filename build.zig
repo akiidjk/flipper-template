@@ -42,6 +42,11 @@ pub fn build(b: *std.Build) void {
     run_ufbt.step.dependOn(&obj_install.step);
     fap_step.dependOn(&run_ufbt.step);
 
+    // Create an "init" step that runs the setup script
+    const init_step = b.step("init", "Initialize project with custom settings");
+    const run_setup = b.addSystemCommand(&[_][]const u8{"bash", "setup.sh"});
+    init_step.dependOn(&run_setup.step);
+
 }
 
 fn addFlipperIncludes(obj: *std.Build.Step.Compile, sdk_base: []const u8) void {

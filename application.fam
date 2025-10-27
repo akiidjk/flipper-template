@@ -1,63 +1,17 @@
 App(
-    # Required: Unique app identifier
-    # Used by build system for dependency resolution and configuration
     appid="template_app",
-
-    # Required: Application type
-    # EXTERNAL - Built as .fap file (for custom build systems, this is recommended)
-    # Other options: APP, SERVICE, SYSTEM, PLUGIN, SETTINGS, etc.
     apptype=FlipperAppType.EXTERNAL,
-
-    # Display name shown in Flipper Zero menus
     name="Template App",
-
-    # Entry point function name (must be extern "C" if using C++)
-    # Adjust this based on your language/build system integration
     entry_point="start",
-
-    # Stack size in bytes for the application
     stack_size=2 * 1024,
-
-    # Version string for your application
     fap_version="0.1",
-
-    # Icon file (1-bit color, 10x10 pixels PNG)
-    # Place your icon in the same directory as this fam file
     fap_icon="icon.png",
-
-    # Category determines the app location in the file browser
-    # Common categories: Games, Tools, GPIO, Media, etc.
     fap_category="Misc",
-
-    # Short description of your application
-    fap_description="Template application for custom build system",
-
-    # Author information
+    fap_description="Template application for Zig on Flipper Zero",
     fap_author="Your Name",
-
-    # Homepage or repository URL
     fap_weburl="https://github.com/yourusername/flipper-template",
-
-    # Source files to compile (Python glob patterns)
-    # Modify this based on your language's file extensions
-    # For custom build systems, you may override this entirely
     sources=["zig-out/bin/app.o"],
-
-    # Dependencies on other Flipper apps/services
-    # Common requirements: "gui", "storage", "notification"
-    requires=[
-        "gui",
-    ],
-
-    # Additional libraries to link against
-    # fap_libs=["your_custom_lib"],
-
-    # Image assets folder (preprocessed at build time)
-    # fap_icon_assets="images",
-
-    # For external build tools/languages
-    # Use fap_extbuild to define custom build steps
-    # Build the .o file first with: zig build
+    requires=["gui"],
     fap_extbuild=[
         ExtFile(path="zig-out/bin/app.o", command=""),
     ],
