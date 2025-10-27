@@ -27,6 +27,10 @@ pub fn build(b: *std.Build) void {
     const home = std.posix.getenv("HOME") orelse ".";
     const sdk_base = b.fmt("{s}/.ufbt/current/sdk_headers/f7_sdk", .{home});
 
+    // Add ARM toolchain libc headers for @cImport
+    const arm_libc_include = b.fmt("{s}/.ufbt/toolchain/arm64-darwin/arm-none-eabi/include", .{home});
+    obj.addSystemIncludePath(.{ .cwd_relative = arm_libc_include });
+
     // Add Flipper SDK includes and defines
     addFlipperIncludes(obj, sdk_base);
     addFlipperDefines(obj);
@@ -35,25 +39,28 @@ pub fn build(b: *std.Build) void {
     const obj_install = b.addInstallBinFile(obj.getEmittedBin(), "app.o");
     b.getInstallStep().dependOn(&obj_install.step);
 
-
     const fap_step = b.step("fap", "Package the app into a .fap file");
 
-    const run_ufbt = b.addSystemCommand(&[_][]const u8{"python3", "-m", "ufbt"});
+    const run_ufbt = b.addSystemCommand(&[_][]const u8{ "python3", "-m", "ufbt" });
     run_ufbt.step.dependOn(&obj_install.step);
     fap_step.dependOn(&run_ufbt.step);
 
     // Create an "init" step that runs the setup script
     const init_step = b.step("init", "Initialize project with custom settings");
-    const run_setup = b.addSystemCommand(&[_][]const u8{"bash", "setup.sh"});
+    const run_setup = b.addSystemCommand(&[_][]const u8{ "bash", "setup.sh" });
     init_step.dependOn(&run_setup.step);
 
+    const launch_step = b.step("launch", "Launch the app on Flipper via UFBT");
+    const run_launch = b.addSystemCommand(&[_][]const u8{ "python3", "-m", "ufbt", "launch" });
+    run_launch.step.dependOn(&obj_install.step);
+    launch_step.dependOn(&run_launch.step);
 }
 
 fn addFlipperIncludes(obj: *std.Build.Step.Compile, sdk_base: []const u8) void {
     const b = obj.step.owner;
 
     // Core SDK paths
-    obj.addIncludePath(.{ .cwd_relative = sdk_base});
+    obj.addIncludePath(.{ .cwd_relative = sdk_base });
     obj.addIncludePath(.{ .cwd_relative = b.fmt("{s}/furi", .{sdk_base}) });
     obj.addIncludePath(.{ .cwd_relative = b.fmt("{s}/applications/services", .{sdk_base}) });
 
