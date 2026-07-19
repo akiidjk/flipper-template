@@ -6,8 +6,12 @@ pub fn build(b: *std.Build) !void {
     const allocator = arena.allocator();
 
     // Get SDK path from $HOME/.ufbt
-    const home = std.posix.getenv("HOME") orelse ".";
+    const home = b.graph.environ_map.get("HOME") orelse ".";
     const sdk_base = b.fmt("{s}/.ufbt/current/sdk_headers/f7_sdk", .{home});
+
+    const host_target = b.standardTargetOptions(.{});
+    const arch = host_target.result.cpu.arch;
+    const os = host_target.result.os.tag;
 
     // UFBT and shell commands
     const ufbt_cmd = [_][]const u8{ "python3", "-m", "ufbt" };
@@ -24,25 +28,37 @@ pub fn build(b: *std.Build) !void {
         .preferred_optimize_mode = .ReleaseSmall,
     });
 
+    const flipper = b.addTranslateC(.{ .root_source_file = b.path("src/flipper.h"), .target = target, .optimize = optimize, .link_libc = false });
+
+    // Add ARM toolchain libc headers for @cImport
+    const arm_libc_include = b.fmt("{s}/.ufbt/toolchain/{s}-{s}/arm-none-eabi/include", .{ home, @tagName(arch), @tagName(os) });
+    flipper.addSystemIncludePath(.{ .cwd_relative = arm_libc_include });
+
+    // GCC's own resource-dir headers (stddef.h, stdarg.h, ...) must come first: newlib's
+    // headers rely on GCC's stddef.h __need_* multiple-inclusion pattern, which zig's
+    // bundled stddef.h doesn't implement.
+    if (findGccResourceInclude(allocator, b.graph.io, home, @tagName(arch), @tagName(os))) |gcc_include| {
+        // -I (not -isystem) so this wins over zig's own bundled resource-dir stddef.h.
+        flipper.addIncludePath(.{ .cwd_relative = gcc_include });
+    }
+
+    // m-core.h (mlib, pulled in transitively by furi.h) wraps itself in file-scope
+    // _Pragma(...) to silence compiler warnings; zig's translate-c can't parse that. It's
+    // purely cosmetic, so serve a copy with those calls stripped, ahead of the real one.
+    if (patchedMlibDir(b, b.graph.io, sdk_base)) |patched_mlib| {
+        flipper.addIncludePath(patched_mlib);
+    }
+
+    // Add Flipper SDK includes and defines
+    addFlipperIncludes(flipper, sdk_base);
+    addFlipperDefines(flipper);
+
     const obj = b.addObject(.{
         .name = "app",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/root.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
+        .root_module = b.createModule(.{ .root_source_file = b.path("src/root.zig"), .target = target, .optimize = optimize, .imports = &.{.{ .name = "flipper", .module = flipper.createModule() }} }),
     });
 
     obj.root_module.unwind_tables = .none;
-
-
-    // Add ARM toolchain libc headers for @cImport
-    const arm_libc_include = b.fmt("{s}/.ufbt/toolchain/arm64-darwin/arm-none-eabi/include", .{home});
-    obj.addSystemIncludePath(.{ .cwd_relative = arm_libc_include });
-
-    // Add Flipper SDK includes and defines
-    addFlipperIncludes(obj, sdk_base);
-    addFlipperDefines(obj);
 
     // Install the .o file
     const obj_install = b.addInstallBinFile(obj.getEmittedBin(), b.fmt("{s}.o", .{obj.name}));
@@ -65,8 +81,43 @@ pub fn build(b: *std.Build) !void {
     launch_step.dependOn(&run_launch.step);
 }
 
+fn findGccResourceInclude(alloc: std.mem.Allocator, io: std.Io, home: []const u8, arch: []const u8, os: []const u8) ?[]const u8 {
+    const gcc_base = std.fmt.allocPrint(alloc, "{s}/.ufbt/toolchain/{s}-{s}/lib/gcc/arm-none-eabi", .{ home, arch, os }) catch return null;
+    var dir = std.Io.Dir.openDirAbsolute(io, gcc_base, .{ .iterate = true }) catch return null;
+    defer dir.close(io);
+    var it = dir.iterate();
+    while (it.next(io) catch return null) |entry| {
+        if (entry.kind == .directory) {
+            return std.fmt.allocPrint(alloc, "{s}/{s}/include", .{ gcc_base, entry.name }) catch return null;
+        }
+    }
+    return null;
+}
+
+fn patchedMlibDir(b: *std.Build, io: std.Io, sdk_base: []const u8) ?std.Build.LazyPath {
+    const real_path = b.fmt("{s}/lib/mlib/m-core.h", .{sdk_base});
+    const content = std.Io.Dir.cwd().readFileAlloc(io, real_path, b.allocator, .unlimited) catch return null;
+
+    var patched: std.ArrayList(u8) = .empty;
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+        if (std.mem.startsWith(u8, trimmed, "_Pragma(")) {
+            // Blank the call but keep a trailing '\' so backslash-continued macros stay intact.
+            if (std.mem.endsWith(u8, line, "\\")) patched.append(b.allocator, '\\') catch return null;
+        } else {
+            patched.appendSlice(b.allocator, line) catch return null;
+        }
+        patched.append(b.allocator, '\n') catch return null;
+    }
+
+    const wf = b.addWriteFiles();
+    _ = wf.add("m-core.h", patched.items);
+    return wf.getDirectory();
+}
+
 fn cmdBuilder(alloc: std.mem.Allocator, cmd: []const []const u8, parts: []const []const u8) ![]const []const u8 {
-    var result = std.ArrayList([]const u8){};
+    var result: std.ArrayList([]const u8) = .empty;
 
     for (cmd) |part| {
         try result.append(alloc, part);
@@ -78,7 +129,7 @@ fn cmdBuilder(alloc: std.mem.Allocator, cmd: []const []const u8, parts: []const 
     return result.toOwnedSlice(alloc);
 }
 
-fn addFlipperIncludes(obj: *std.Build.Step.Compile, sdk_base: []const u8) void {
+fn addFlipperIncludes(obj: *std.Build.Step.TranslateC, sdk_base: []const u8) void {
     const b = obj.step.owner;
 
     // Core SDK paths
@@ -125,18 +176,18 @@ fn addFlipperIncludes(obj: *std.Build.Step.Compile, sdk_base: []const u8) void {
     obj.addIncludePath(.{ .cwd_relative = b.fmt("{s}/lib/datetime", .{sdk_base}) });
 }
 
-fn addFlipperDefines(obj: *std.Build.Step.Compile) void {
-    obj.root_module.addCMacro("_GNU_SOURCE", "");
-    obj.root_module.addCMacro("FW_CFG_default", "");
-    obj.root_module.addCMacro("M_MEMORY_FULL(x)", "abort()");
-    obj.root_module.addCMacro("STM32WB", "");
-    obj.root_module.addCMacro("STM32WB55xx", "");
-    obj.root_module.addCMacro("USE_FULL_ASSERT", "");
-    obj.root_module.addCMacro("USE_FULL_LL_DRIVER", "");
-    obj.root_module.addCMacro("MBEDTLS_CONFIG_FILE", "\\\"mbedtls_cfg.h\\\"");
-    obj.root_module.addCMacro("PB_ENABLE_MALLOC", "");
-    obj.root_module.addCMacro("FW_ORIGIN_Official", "");
-    obj.root_module.addCMacro("FURI_NDEBUG", "");
-    obj.root_module.addCMacro("NDEBUG", "");
-    obj.root_module.addCMacro("FAP_VERSION", "\\\"1.0\\\"");
+fn addFlipperDefines(obj: *std.Build.Step.TranslateC) void {
+    obj.defineCMacro("_GNU_SOURCE", "");
+    obj.defineCMacro("FW_CFG_default", "");
+    obj.defineCMacro("M_MEMORY_FULL(x)", "abort()");
+    obj.defineCMacro("STM32WB", "");
+    obj.defineCMacro("STM32WB55xx", "");
+    obj.defineCMacro("USE_FULL_ASSERT", "");
+    obj.defineCMacro("USE_FULL_LL_DRIVER", "");
+    obj.defineCMacro("MBEDTLS_CONFIG_FILE", "\\\"mbedtls_cfg.h\\\"");
+    obj.defineCMacro("PB_ENABLE_MALLOC", "");
+    obj.defineCMacro("FW_ORIGIN_Official", "");
+    obj.defineCMacro("FURI_NDEBUG", "");
+    obj.defineCMacro("NDEBUG", "");
+    obj.defineCMacro("FAP_VERSION", "\\\"1.0\\\"");
 }

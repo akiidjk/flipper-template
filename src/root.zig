@@ -1,11 +1,4 @@
-
-
-const flipper = @cImport({
-    @cInclude("furi.h");
-    @cInclude("gui/gui.h");
-    @cInclude("gui/canvas.h");
-    @cInclude("gui/view_port.h");
-});
+const flipper = @import("flipper");
 
 // Manually declare ViewPort input callback function
 // Note: @cImport of gui/view_port.h fails because it includes input/input.h which has
@@ -46,7 +39,7 @@ export fn start(_: ?*anyopaque) callconv(.{ .arm_aapcs = .{} }) i32 {
 
     view_port_draw_callback_set(view_port, draw_callback, null);
     view_port_input_callback_set(view_port, input_callback, context);
-    flipper.gui_add_view_port(gui, view_port, 0); // GuiLayerFullscreen = 0
+    flipper.gui_add_view_port(gui, view_port, flipper.GuiLayerFullscreen);
     defer flipper.gui_remove_view_port(gui, view_port);
 
     // Wait for any button press (thread flag 1)
