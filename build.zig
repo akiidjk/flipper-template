@@ -38,7 +38,6 @@ pub fn build(b: *std.Build) !void {
     // headers rely on GCC's stddef.h __need_* multiple-inclusion pattern, which zig's
     // bundled stddef.h doesn't implement.
     if (findGccResourceInclude(allocator, b.graph.io, home, @tagName(arch), @tagName(os))) |gcc_include| {
-        // -I (not -isystem) so this wins over zig's own bundled resource-dir stddef.h.
         flipper.addIncludePath(.{ .cwd_relative = gcc_include });
     }
 
@@ -47,6 +46,15 @@ pub fn build(b: *std.Build) !void {
     // purely cosmetic, so serve a copy with those calls stripped, ahead of the real one.
     if (patchedMlibDir(b, b.graph.io, sdk_base)) |patched_mlib| {
         flipper.addIncludePath(patched_mlib);
+    }
+
+    // InputEvent (input.h, pulled in by gui/view_port.h) packs a sequence counter as C
+    // bitfields inside an anonymous union; translate-c can't represent bitfields and
+    // demotes the whole struct to opaque. Nothing needs those bitfields from Zig (only
+    // `key`/`type`), so serve a copy with the union collapsed to its plain uint32_t
+    // member: identical size/offsets, but now a real, readable struct.
+    if (patchedInputDir(b, b.graph.io, sdk_base)) |patched_input| {
+        flipper.addIncludePath(patched_input);
     }
 
     // Add Flipper SDK includes and defines
@@ -113,6 +121,40 @@ fn patchedMlibDir(b: *std.Build, io: std.Io, sdk_base: []const u8) ?std.Build.La
 
     const wf = b.addWriteFiles();
     _ = wf.add("m-core.h", patched.items);
+    return wf.getDirectory();
+}
+
+fn patchedInputDir(b: *std.Build, io: std.Io, sdk_base: []const u8) ?std.Build.LazyPath {
+    const real_path = b.fmt("{s}/applications/services/input/input.h", .{sdk_base});
+    const content = std.Io.Dir.cwd().readFileAlloc(io, real_path, b.allocator, .unlimited) catch return null;
+
+    const start = std.mem.indexOf(u8, content, "union {") orelse return null;
+    var depth: i32 = 0;
+    var seen_open = false;
+    var end = start;
+    while (end < content.len) : (end += 1) {
+        switch (content[end]) {
+            '{' => {
+                depth += 1;
+                seen_open = true;
+            },
+            '}' => depth -= 1,
+            else => {},
+        }
+        if (seen_open and depth == 0) {
+            end += 1;
+            break;
+        }
+    }
+    if (end < content.len and content[end] == ';') end += 1;
+
+    var patched: std.ArrayList(u8) = .empty;
+    patched.appendSlice(b.allocator, content[0..start]) catch return null;
+    patched.appendSlice(b.allocator, "uint32_t sequence;") catch return null;
+    patched.appendSlice(b.allocator, content[end..]) catch return null;
+
+    const wf = b.addWriteFiles();
+    _ = wf.add("input/input.h", patched.items);
     return wf.getDirectory();
 }
 

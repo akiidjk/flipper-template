@@ -1,13 +1,5 @@
 const flipper = @import("flipper");
 
-// Manually declare ViewPort input callback function
-// Note: @cImport of gui/view_port.h fails because it includes input/input.h which has
-// InputEvent struct with opaque types in unions that Zig can't translate.
-// Zig issue #10821: @cImport fails silently and reports "undeclared identifier" instead
-// of showing the actual C translation error.
-extern fn view_port_draw_callback_set(view_port: ?*flipper.ViewPort, callback: ?*const fn (?*flipper.Canvas, ?*anyopaque) callconv(.{ .arm_aapcs_vfp = .{} }) void, context: ?*anyopaque) callconv(.{ .arm_aapcs = .{} }) void;
-extern fn view_port_input_callback_set(view_port: ?*flipper.ViewPort, callback: ?*const fn (?*anyopaque, ?*anyopaque) callconv(.{ .arm_aapcs_vfp = .{} }) void, context: ?*anyopaque) callconv(.{ .arm_aapcs = .{} }) void;
-
 // Draw callback
 export fn draw_callback(canvas: ?*flipper.Canvas, context: ?*anyopaque) callconv(.{ .arm_aapcs_vfp = .{} }) void {
     _ = context;
@@ -19,7 +11,7 @@ export fn draw_callback(canvas: ?*flipper.Canvas, context: ?*anyopaque) callconv
 }
 
 // Input callback - exit on any button press
-export fn input_callback(event: ?*anyopaque, context: ?*anyopaque) callconv(.{ .arm_aapcs_vfp = .{} }) void {
+export fn input_callback(event: ?*flipper.InputEvent, context: ?*anyopaque) callconv(.{ .arm_aapcs_vfp = .{} }) void {
     _ = event;
     // context contains the main thread ID (cast back from pointer)
     const main_thread_id: flipper.FuriThreadId = @ptrCast(@alignCast(context));
@@ -37,8 +29,8 @@ export fn start(_: ?*anyopaque) callconv(.{ .arm_aapcs = .{} }) i32 {
     const main_thread_id = flipper.furi_thread_get_current_id();
     const context: ?*anyopaque = @ptrCast(main_thread_id);
 
-    view_port_draw_callback_set(view_port, draw_callback, null);
-    view_port_input_callback_set(view_port, input_callback, context);
+    flipper.view_port_draw_callback_set(view_port, draw_callback, null);
+    flipper.view_port_input_callback_set(view_port, input_callback, context);
     flipper.gui_add_view_port(gui, view_port, flipper.GuiLayerFullscreen);
     defer flipper.gui_remove_view_port(gui, view_port);
 
