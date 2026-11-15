@@ -22,7 +22,7 @@ The template uses a two-stage build process:
 1. **Zig Build Stage**: Compiles Zig source to ARM Cortex-M4 object files (`app.o`)
    - Target: `thumb` architecture with `cortex-m4` CPU model
    - ABI: `eabihf` (Embedded Application Binary Interface, Hard Float)
-   - Optimization: `ReleaseSmall` for minimal binary size
+   - Optimization: Debug by default; `-Drelease=true` selects `ReleaseSmall` for minimal binary size
 
 2. **UFBT Package Stage**: Links object files with SDK and packages into `.fap` format
    - Handled by the official Flipper build toolchain
@@ -32,7 +32,7 @@ The template uses a two-stage build process:
 
 ### Required Tools
 
-- **Zig**: Version 0.15.1 or later ([download](https://ziglang.org/download/))
+- **Zig**: Version 0.17.1 ([download](https://ziglang.org/download/))
 - **UFBT**: Unofficial Flipper Build Tool ([installation guide](https://github.com/flipperdevices/flipperzero-ufbt#installation))
 - **Python 3**: Required for running `ufbt` commands
 - **Flipper Zero SDK**: Automatically managed by `ufbt` (installed to `~/.ufbt`)
@@ -135,12 +135,7 @@ The template includes a "Hello World" example demonstrating core Flipper APIs:
 
 ```zig
 // Import Flipper SDK functions
-const flipper = @cImport({
-    @cInclude("furi.h");
-    @cInclude("gui/gui.h");
-    @cInclude("gui/canvas.h");
-    @cInclude("gui/view_port.h");
-});
+const flipper = @import("flipper");
 
 // Application entry point (must be named "start")
 export fn start(_: ?*anyopaque) callconv(.{ .arm_aapcs = .{} }) i32 {
@@ -168,7 +163,7 @@ The build system automatically configures include paths for:
 - **Protocol Libraries**: Sub-GHz, NFC, RFID, Infrared
 - **Peripheral APIs**: GPIO, SPI, I2C, UART
 
-All headers are available via `@cImport()` in your Zig code.
+Add SDK headers to `src/flipper.h`; `build.zig` translates them into the `flipper` module imported by your Zig code.
 
 ### Calling Convention Notes
 
@@ -231,7 +226,7 @@ obj.root_module.addCMacro("CUSTOM_DEFINE", "value");
 Change optimization level in `build.zig:11`:
 ```zig
 const optimize = b.standardOptimizeOption(.{
-    .preferred_optimize_mode = .ReleaseFast,  // or .ReleaseSmall, .Debug
+    .preferred_optimize_mode = .ReleaseFast,  // used with -Drelease=true
 });
 ```
 
@@ -262,7 +257,7 @@ Contributions are welcome! This template aims to simplify Zig development for Fl
 
 - [Flipper Zero Developer Documentation](https://developer.flipper.net/)
 - [UFBT Repository](https://github.com/flipperdevices/flipperzero-ufbt)
-- [Zig Language Reference](https://ziglang.org/documentation/master/)
+- [Zig Language Reference](https://ziglang.org/documentation/0.17.1/)
 - [Flipper SDK API Reference](https://github.com/flipperdevices/flipperzero-firmware/tree/dev/documentation)
 
 ## License
